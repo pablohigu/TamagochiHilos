@@ -7,6 +7,9 @@ import java.util.Scanner;
  * Define los posibles estados de un Tamagotchi. Solo puede estar en un estado a
  * la vez.
  */
+
+// Private accion a realizar , hacer una variable donde le diga al tamagochi que accion tiene que ejecutar
+// todo esto que se ejecute desde el main 
 enum Estado {
 	OCIOSO, // Ocioso, disponible para acciones
 	COMIENDO, // Comiendo
@@ -14,12 +17,20 @@ enum Estado {
 	LIMPIANDO, // Limpiándose
 	MUERTO // Muerto
 }
+enum EstadoProximo {
+	NADA, // Ocioso, disponible para acciones
+	COMER, // Comiendo
+	JUGAR, // Jugando
+	LIMPIAR, // Limpiándose
+	MORIR // Muerto
+}
 
 /**
  * La clase Tamagotchi implementa Runnable para tener su "propia vida" en un
  * hilo separado. Gestiona sus propias necesidades (suciedad, vida) de forma
  * autónoma.
  */
+
 class Tamagotchi implements Runnable {
 	// --- Constantes de Simulación ---
 	private static final long TIEMPO_DE_VIDA_MS = 5 * 60 * 1000; // 5 minutos de vida
@@ -33,11 +44,26 @@ class Tamagotchi implements Runnable {
 	private final long horaNacimiento;
 	private long ultimaVezSucia;
 
-	// --- Variables de Estado (volatile/atomic para seguridad entre hilos) ---
+	// --- Variables de Estado (volatile para seguridad entre hilos) ---
 	private volatile boolean estaVivo;
 	private volatile Estado estado;
 	private Integer nivelSuciedad;
-
+	private EstadoProximo estadoProximo;
+	public boolean llamarAlimentar() {
+		if (this.estadoProximo == EstadoProximo.NADA && estado == Estado.OCIOSO) {
+		this.estadoProximo = EstadoProximo.COMER;
+		return true;
+		}
+		return false;
+	}
+	public boolean llamarLimpiar() {
+		if (this.estadoProximo == EstadoProximo.NADA && estado == Estado.OCIOSO) {
+            this.estadoProximo = EstadoProximo.LIMPIAR;
+            return true;
+        }
+        return false;
+	}
+	
 	public Tamagotchi(String id, long velocidadComerMs) {
 		this.id = id;
 		this.velocidadComerMs = velocidadComerMs;
@@ -46,6 +72,7 @@ class Tamagotchi implements Runnable {
 		this.nivelSuciedad = 0;
 		this.horaNacimiento = System.currentTimeMillis();
 		this.ultimaVezSucia = this.horaNacimiento;
+		this.estadoProximo = EstadoProximo.NADA;
 	}
 
 	@Override
@@ -55,7 +82,10 @@ class Tamagotchi implements Runnable {
 				long ahora = System.currentTimeMillis();
 				boolean debeMorirPorEdad = (ahora - horaNacimiento > TIEMPO_DE_VIDA_MS);
 				boolean debeMorirPorSuciedad = (this.nivelSuciedad >= SUCIEDAD_MAXIMA);
-
+				if (this.estado == Estado.JUGANDO) {
+                    Thread.sleep(1000); 
+                    continue; 
+                }
 				if (debeMorirPorEdad || debeMorirPorSuciedad) {
 					if (this.estado == Estado.OCIOSO) {
 						if (debeMorirPorEdad) {
@@ -70,6 +100,18 @@ class Tamagotchi implements Runnable {
 						imprimir("¡Debería morir de " + (debeMorirPorEdad ? "viejo" : "suciedad") + ", pero estoy "
 								+ this.estado + "! Esperaré a terminar.");
 					}
+				}
+				if (estadoProximo == EstadoProximo.COMER) {
+					estadoProximo = EstadoProximo.NADA;
+					this.alimentar("una manzana");
+					continue;
+					
+				}
+				if (estadoProximo == EstadoProximo.LIMPIAR) {
+					estadoProximo = EstadoProximo.NADA;
+					 this.limpiar();
+					continue;
+					
 				}
 				if (this.estaVivo && this.estado != Estado.LIMPIANDO
 						&& (ahora - ultimaVezSucia > INTERVALO_SUCIEDAD_MS)) {
@@ -92,14 +134,10 @@ class Tamagotchi implements Runnable {
 	}
 
 	/**
-	 * Acción: Alimentar al Tamagotchi (VERSIÓN SIMPLE SIN SYNCHRONIZED) Esta acción
-	 * se ejecuta de forma asíncrona en un nuevo hilo para no bloquear al cuidador y
-	 * simular el tiempo de comida.
-	 *
 	 * @param comida El nombre de la comida (ej. "una manzana")
 	 * @return true si pudo empezar a comer, false si estaba ocupado o muerto.
 	 */
-	public boolean alimentar(String comida) {
+	private boolean alimentar(String comida) {
 		if (!this.estaVivo) {
 			imprimir("está muerto, no puede comer.");
 			return false;
@@ -110,15 +148,14 @@ class Tamagotchi implements Runnable {
 		}
 		this.estado = Estado.COMIENDO;
 		try {
-			imprimir("¡Empieza a comer " + comida + "! 🍎 (Tardará " + (velocidadComerMs / 1000.0) + "s)");
+			imprimir("¡Empieza a comer " + comida + "! (Tardará " + (velocidadComerMs / 1000.0) + "s)");
 			Thread.sleep(this.velocidadComerMs);
-			// Tarea B: Informar que terminó
+
 			imprimir("¡Terminó de comer! ¡Qué rico!");
 
 		} catch (InterruptedException e) {
 			// Esto pasa si el programa se cierra de golpe
 			imprimir("¡Le interrumpieron la comida!");
-
 		} finally {
 			if (this.estado == Estado.COMIENDO) {
 				this.estado = Estado.OCIOSO;
@@ -128,7 +165,7 @@ class Tamagotchi implements Runnable {
 	}
 
 	/**
-	 * Acción: Limpiar al Tamagotchi. ¡BLOQUEA AL CUIDADOR!
+	 * Acción: Limpiar al Tamagotchi.
 	 */
 	public boolean limpiar() {
 		if (!this.estaVivo) {
@@ -142,8 +179,8 @@ class Tamagotchi implements Runnable {
 
 		this.estado = Estado.LIMPIANDO;
 		try {
-			imprimir("¡Hora del baño! 🧼 (Durará " + (DURACION_LIMPIEZA_MS / 1000.0) + "s)");
-			Thread.sleep(DURACION_LIMPIEZA_MS); // <-- EL CUIDADOR SE BLOQUEA AQUÍ
+			imprimir("¡Hora del baño! (Durará " + (DURACION_LIMPIEZA_MS / 1000.0) + "s)");
+			Thread.sleep(DURACION_LIMPIEZA_MS);
 			this.nivelSuciedad = 0;
 			this.ultimaVezSucia = System.currentTimeMillis(); // Reinicia el contador de suciedad
 			imprimir("¡Totalmente limpio!");
@@ -159,10 +196,8 @@ class Tamagotchi implements Runnable {
 	}
 
 	/**
-	 * Acción: Jugar con el Tamagotchi. ¡BLOQUEA AL CUIDADOR! (Esto es necesario por
-	 * el Scanner)
-	 *
-	 * @param scannerCuidador El Scanner del hilo principal (Caretaker).
+	 * Acción: Jugar con el Tamagotchi.
+	 * @param scannerCuidador El Scanner del hilo principal (Cuidador).
 	 */
 	public void jugar(Scanner scannerCuidador) {
 		if (!this.estaVivo) {
@@ -176,7 +211,7 @@ class Tamagotchi implements Runnable {
 
 		this.estado = Estado.JUGANDO;
 
-		imprimir("¡quiere jugar! 🎲");
+		imprimir("¡quiere jugar!");
 		Random rand = new Random();
 		boolean acertado = false;
 
@@ -184,7 +219,6 @@ class Tamagotchi implements Runnable {
 			int a = rand.nextInt(5);
 			int b = rand.nextInt(5);
 			int resultado = a + b;
-
 			imprimir("¿Cuánto es " + a + " + " + b + "?");
 			try {
 				// Lee la respuesta del cuidador
@@ -278,7 +312,7 @@ class Tamagotchi implements Runnable {
 	}
 
 	private void imprimir(String mensaje) {
-		System.out.printf("[%s] (%s): %s%n", this.id, Thread.currentThread().getName(), mensaje);
+		System.out.println("[" + this.id + "] (" + Thread.currentThread().getName() + "): " + mensaje);
 	}
 
 }
